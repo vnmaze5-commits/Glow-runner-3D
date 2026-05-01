@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Real Neon Run - Pro</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        
+        /* UI Elements */
+        #ui-container { position: absolute; top: 15px; left: 15px; color: #fff; z-index: 10; pointer-events: none; }
+        .stat { font-size: 20px; font-weight: bold; text-shadow: 2px 2px 4px #000; margin-bottom: 5px; }
+        
+        /* Menu & Store Screens */
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 100; color: white;
+        }
+        #store-screen { display: none; }
+
+        button {
+            padding: 15px 40px; font-size: 22px; background: #0f0; border: none;
+            cursor: pointer; color: #000; font-weight: bold; border-radius: 50px;
+            margin: 10px; box-shadow: 0 0 15px #0f0;
+        }
+        .store-btn { background: #00ffff; box-shadow: 0 0 15px #00ffff; font-size: 18px; }
+        
+        /* Store Grid */
+        .ball-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
+        .ball-item {
+            padding: 15px; border: 2px solid #555; text-align: center; border-radius: 10px;
+            background: #111;
+        }
+        .unlocked { border-color: #0f0; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-container">
+        <div class="stat">Score: <span id="scoreText">0</span></div>
+        <div class="stat">Coins: 💰<span id="coinText">0</span></div>
+    </div>
+
+    <div id="start-screen" class="screen">
+        <h1 style="color: #0f0; font-size: 45px; text-shadow: 0 0 20px #0f0;">NEON RUN PRO</h1>
+        <button onclick="startGame()">START GAME</button>
+        <button class="store-btn" onclick="toggleStore(true)">BALL STORE 🛒</button>
+    </div>
+
+    <div id="store-screen" class="screen">
+        <h1>BALL STORE</h1>
+        <p>Current Coins: 💰<span id="storeCoinText">0</span></p>
+        <div class="ball-grid">
+            <div class="ball-item" id="ball0">
+                <div style="width:40px; height:40px; background:#0f0; border-radius:50%; margin:auto;"></div>
+                <p>Neon Green</p>
+                <button style="font-size:12px; padding:5px 10px;" onclick="selectBall(0)">SELECT</button>
+            </div>
+            <div class="ball-item" id="ball1">
+                <div style="width:40px; height:40px; background:#ff00ff; border-radius:50%; margin:auto;"></div>
+                <p>Pink Fury</p>
+                <button id="buyBtn1" style="font-size:12px; padding:5px 10px;" onclick="handleBallAction(1)">BUY (100)</button>
+            </div>
+            <div class="ball-item" id="ball2">
+                <div style="width:40px; height:40px; background:#00ffff; border-radius:50%; margin:auto;"></div>
+                <p>Ice Blue</p>
+                <button id="buyBtn2" style="font-size:12px; padding:5px 10px;" onclick="handleBallAction(2)">BUY (100)</button>
+            </div>
+            <div class="ball-item" id="ball3">
+                <div style="width:40px; height:40px; background:#ff8800; border-radius:50%; margin:auto;"></div>
+                <p>Fire Ball</p>
+                <button id="buyBtn3" style="font-size:12px; padding:5px 10px;" onclick="handleBallAction(3)">BUY (100)</button>
+            </div>
+        </div>
+        <button class="store-btn" style="margin-top:30px;" onclick="toggleStore(false)">BACK</button>
+    </div>
+
+    <div id="msg" class="screen" style="display:none;">
+        <h1 style="color:red;">CRASHED!</h1>
+        <p id="finalScore"></p>
+        <button onclick="location.reload()">RETRY</button>
+    </div>
+
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+
+    <script>
+        let scene, camera, renderer, ball, road, obstacles = [], coins = [];
+        let score = 0, speed = 0.2, gameActive = false;
+        
+        // Game Data (Local Storage)
+        let gameData = JSON.parse(localStorage.getItem('neonRunData')) || {
+            coins: 0,
+            unlocked: [true, false, false, false],
+            selectedBall: 0
+        };
+
+        const ballColors = [0x00ff00, 0xff00ff, 0x00ffff, 0xff8800];
+
+        function saveGame() { localStorage.setItem('neonRunData', JSON.stringify(gameData)); }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x0a0a1a, 0.05);
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 4, 10);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Lights
+            scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(0, 10, 5);
+            scene.add(dirLight);
+
+            // Road
+            const roadGeo = new THREE.PlaneGeometry(12, 10000);
+            const roadMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
+            road = new THREE.Mesh(roadGeo, roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.receiveShadow = true;
+            scene.add(road);
+
+            // Player Ball
+            const ballGeo = new THREE.SphereGeometry(0.5, 32, 32);
+            const ballMat = new THREE.MeshStandardMaterial({ 
+                color: ballColors[gameData.selectedBall], 
+                emissive: ballColors[gameData.selectedBall],
+                emissiveIntensity: 0.5
+            });
+            ball = new THREE.Mesh(ballGeo, ballMat);
+            ball.position.y = 0.5;
+            ball.castShadow = true;
+            scene.add(ball);
+
+            // Objects
+            for(let i = 0; i < 30; i++) createObstacle(-i * 20 - 30);
+            for(let i = 0; i < 15; i++) createCoin(-i * 40 - 20);
+
+            updateUI();
+            updateStoreUI();
+        }
+
+        function createObstacle(z) {
+            const obs = new THREE.Mesh(new THREE.BoxGeometry(2, 1.2, 1), new THREE.MeshPhongMaterial({color: 0xff0033}));
+            obs.position.set((Math.random() - 0.5) * 10, 0.6, z);
+            scene.add(obs);
+            obstacles.push(obs);
+        }
+
+        function createCoin(z) {
+            const coinGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.1, 16);
+            const coinMat = new THREE.MeshBasicMaterial({color: 0xffff00});
+            const coin = new THREE.Mesh(coinGeo, coinMat);
+            coin.rotation.x = Math.PI / 2;
+            coin.position.set((Math.random() - 0.5) * 10, 0.6, z);
+            scene.add(coin);
+            coins.push(coin);
+        }
+
+        function startGame() {
+            document.getElementById('start-screen').style.display = 'none';
+            gameActive = true;
+            animate();
+        }
+
+        function toggleStore(show) {
+            document.getElementById('store-screen').style.display = show ? 'flex' : 'none';
+            updateStoreUI();
+        }
+
+        function handleBallAction(index) {
+            if (gameData.unlocked[index]) {
+                selectBall(index);
+            } else if (gameData.coins >= 100) {
+                gameData.coins -= 100;
+                gameData.unlocked[index] = true;
+                saveGame();
+                updateStoreUI();
+                updateUI();
+            } else {
+                alert("Not enough coins! Need 100.");
+            }
+        }
+
+        function selectBall(index) {
+            if(!gameData.unlocked[index]) return;
+            gameData.selectedBall = index;
+            saveGame();
+            location.reload(); // Reload to apply ball change
+        }
+
+        function updateUI() {
+            document.getElementById('coinText').innerText = gameData.coins;
+            document.getElementById('storeCoinText').innerText = gameData.coins;
+        }
+
+        function updateStoreUI() {
+            for(let i=1; i<=3; i++) {
+                const btn = document.getElementById('buyBtn'+i);
+                if(gameData.unlocked[i]) {
+                    btn.innerText = "SELECT";
+                    btn.style.background = "#0f0";
+                }
+            }
+        }
+
+        function animate() {
+            if(!gameActive) return;
+            requestAnimationFrame(animate);
+
+            ball.position.z -= speed;
+            camera.position.z = ball.position.z + 10;
+            camera.lookAt(ball.position.x * 0.4, 1, ball.position.z - 2);
+
+            // Obstacle logic
+            obstacles.forEach(obs => {
+                if(obs.position.z > ball.position.z + 10) {
+                    obs.position.z = ball.position.z - 300;
+                    obs.position.x = (Math.random() - 0.5) * 10;
+                }
+                if(ball.position.distanceTo(obs.position) < 0.9) gameOver();
+            });
+
+            // Coin logic
+            coins.forEach(coin => {
+                coin.rotation.z += 0.05;
+                if(coin.position.z > ball.position.z + 10) {
+                    coin.position.z = ball.position.z - 250;
+                    coin.position.x = (Math.random() - 0.5) * 10;
+                    coin.visible = true;
+                }
+                if(coin.visible && ball.position.distanceTo(coin.position) < 0.8) {
+                    coin.visible = false;
+                    gameData.coins++;
+                    updateUI();
+                    saveGame();
+                }
+            });
+
+            score = Math.floor(Math.abs(ball.position.z));
+            document.getElementById('scoreText').innerText = score;
+            renderer.render(scene, camera);
+        }
+
+        function gameOver() {
+            gameActive = false;
+            document.getElementById('msg').style.display = 'flex';
+            document.getElementById('finalScore').innerText = "Score: " + score;
+        }
+
+        window.addEventListener('touchstart', (e) => {
+            if(!gameActive) return;
+            ball.position.x += (e.touches[0].clientX < window.innerWidth/2) ? -1 : 1;
+            ball.position.x = Math.max(-5.5, Math.min(5.5, ball.position.x));
+        });
+
+        init();
+    </script>
+</body>
+</html>
